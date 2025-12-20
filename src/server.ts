@@ -59,6 +59,12 @@ usersRoutes.post("/register", async (req, res) => {
         email,
         password: passwordHash,
       },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+      },
     });
 
     return res.status(201).json({
