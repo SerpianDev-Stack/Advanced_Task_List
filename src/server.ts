@@ -8,6 +8,7 @@ import { Pool } from "pg";
 import express from "express";
 import { Router } from "express";
 import bcrypt from "bcrypt";
+import { authMiddleware } from "./prisma/middlewares/authMiddleware.js";
 
 if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET não definido");
@@ -151,6 +152,36 @@ usersRoutes.post("/login", async (req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({
+      message: "Erro interno no servidor",
+    });
+  }
+});
+
+usersRoutes.get("/me", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user!.id;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        created_at: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        message: "Usuário não encontrado",
+      });
+    }
+
+    return res.status(200).json(user);
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({
       message: "Erro interno no servidor",
     });
   }
