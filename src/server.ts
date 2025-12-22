@@ -9,6 +9,7 @@ import express from "express";
 import { Router } from "express";
 import bcrypt from "bcrypt";
 import { authMiddleware } from "./prisma/middlewares/authMiddleware.js";
+import type { Prisma } from "@prisma/client";
 
 if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET não definido");
@@ -182,6 +183,52 @@ usersRoutes.get("/me", authMiddleware, async (req, res) => {
   } catch (error) {
     console.log(error);
     res.status(500).json({
+      message: "Erro interno no servidor",
+    });
+  }
+});
+
+usersRoutes.put("/me", authMiddleware, async (req, res) => {
+  const userId = req.user!.id;
+  const { name, email, password } = req.body;
+
+  try {
+    if (email) {
+      const emailInUse = await prisma.user.findUnique({
+        where: { email },
+      });
+
+      if (emailInUse && emailInUse.id !== userId) {
+        return res.status(409).json({
+          message: "Email já está em uso",
+        });
+      }
+    }
+
+    const data: Prisma.UserUpdateInput = {};
+
+    if (name) data.name = name;
+    if (email) data.email = email;
+    if (password) data.password = await bcrypt.hash(password, 10);
+
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+      },
+    });
+
+    return res.status(200).json({
+      message: "Usuário atualizado com sucesso",
+      user,
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
       message: "Erro interno no servidor",
     });
   }
