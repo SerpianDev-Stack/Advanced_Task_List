@@ -1,3 +1,6 @@
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const jwt = require("jsonwebtoken");
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -5,6 +8,10 @@ import { Pool } from "pg";
 import express from "express";
 import { Router } from "express";
 import bcrypt from "bcrypt";
+
+if (!process.env.JWT_SECRET) {
+  throw new Error("JWT_SECRET não definido");
+}
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -73,6 +80,72 @@ usersRoutes.post("/register", async (req, res) => {
         id: user.id,
         name: user.name,
         email: user.email,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      message: "Erro interno no servidor",
+    });
+  }
+});
+
+usersRoutes.post("/login", async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({
+      message: "Email e senha são obrigatórios",
+    });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        password: true,
+        role: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        message: "Email ou senha inválidos",
+      });
+    }
+
+    const passwordMatch = await bcrypt.compare(password, user.password);
+
+    if (!passwordMatch) {
+      return res.status(401).json({
+        message: "Email ou senha inválidos",
+      });
+    }
+
+    const token = jwt.sign(
+      {
+        sub: user.id,
+        role: user.role,
+      },
+
+      process.env.JWT_SECRET!,
+      {
+        expiresIn: "1d",
+      },
+    );
+
+    return res.status(200).json({
+      message: "Login realizado com sucesso",
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
       },
     });
   } catch (error) {
