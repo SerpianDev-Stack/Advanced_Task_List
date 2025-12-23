@@ -10,6 +10,8 @@ import { Router } from "express";
 import bcrypt from "bcrypt";
 import { authMiddleware } from "./prisma/middlewares/authMiddleware.js";
 import type { Prisma } from "@prisma/client";
+import { roleMiddleware } from "./prisma/middlewares/roleMiddleware.js";
+import { UserRole } from "@prisma/client";
 
 if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET não definido");
@@ -31,14 +33,38 @@ const app = express();
 app.use(express.json());
 const usersRoutes = Router();
 
+app.use((req, _res, next) => {
+  console.log(req.method, req.originalUrl);
+  next();
+});
+
 app.use("/users", usersRoutes);
 
-app.get("/", (req, res) => {
-  return res.status(200).json({
-    status: "ok",
-    message: "Servidor funcionando",
-  });
-});
+usersRoutes.get(
+  "/",
+  authMiddleware,
+  roleMiddleware([UserRole.ADMIN, UserRole.MODERATOR]),
+  async (req, res) => {
+    try {
+      const users = await prisma.user.findMany({
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          created_at: true,
+        },
+      });
+
+      return res.status(200).json(users);
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({
+        message: "Erro interno no servidor",
+      });
+    }
+  },
+);
 
 usersRoutes.post("/register", async (req, res) => {
   const { name, email, password } = req.body;
