@@ -322,6 +322,74 @@ usersRoutes.patch(
   },
 );
 
+usersRoutes.patch(
+  "/:id/demote",
+  authMiddleware,
+  roleMiddleware([UserRole.ADMIN]),
+  async (req, res) => {
+    const userId = Number(req.params.id);
+
+    if (isNaN(userId)) {
+      return res.status(400).json({
+        message: "ID inválido",
+      });
+    }
+
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+        },
+      });
+
+      if (!user) {
+        return res.status(404).json({
+          message: "Usuário não encontrado",
+        });
+      }
+
+      if (user.role === UserRole.USER) {
+        return res.status(409).json({
+          message: "Usuário já é um usuário comum",
+        });
+      }
+
+      if (user.role !== UserRole.MODERATOR) {
+        return res.status(400).json({
+          message: "Apenas moderadores podem ser rebaixados",
+        });
+      }
+
+      const updatedUser = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          role: UserRole.USER,
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+        },
+      });
+
+      return res.status(200).json({
+        message: "Moderador rebaixado a usuário com sucesso",
+        user: updatedUser,
+      });
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({
+        message: "Erro interno no servidor",
+      });
+    }
+  },
+);
+
 app.listen(PORT, () => {
   console.log(`Servidor funcionando na porta ${PORT}`);
 });
