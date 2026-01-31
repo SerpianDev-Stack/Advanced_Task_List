@@ -12,6 +12,7 @@ import { authMiddleware } from "./prisma/middlewares/authMiddleware.js";
 import type { Prisma } from "@prisma/client";
 import { roleMiddleware } from "./prisma/middlewares/roleMiddleware.js";
 import { UserRole } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 
 if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET não definido");
@@ -154,21 +155,31 @@ usersRoutes.post("/login", async (req, res) => {
       });
     }
 
-    const token = jwt.sign(
+    const accessToken = jwt.sign(
       {
         sub: user.id,
         role: user.role,
       },
-
       process.env.JWT_SECRET!,
       {
-        expiresIn: "1d",
+        expiresIn: "15m",
       },
     );
 
+    const refreshToken = randomUUID();
+
+    await prisma.refreshToken.create({
+      data: {
+        token: refreshToken,
+        userId: user.id,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      },
+    });
+
     return res.status(200).json({
       message: "Login realizado com sucesso",
-      token,
+      accessToken,
+      refreshToken,
       user: {
         id: user.id,
         name: user.name,
@@ -389,6 +400,106 @@ usersRoutes.patch(
     }
   },
 );
+
+usersRoutes.delete(
+  "/:id",
+  authMiddleware,
+  roleMiddleware([UserRole.ADMIN]),
+  async (req, res) => {
+    const userId = Number(req.params.id);
+    const loggedUser = req.user!.id;
+
+    if (isNaN(userId)) {
+      return res.status(400).json({
+        message: "ID inválido",
+      });
+    }
+
+    if (userId === loggedUser) {
+      return res.status(400).json({
+        message: "Você não pode deletar o próprio usuário",
+      });
+    }
+
+    try {
+      const userExists = await prisma.user.findUnique({
+        where: { id: userId },
+      });
+
+      if (!userExists) {
+        return res.status(404).json({
+          message: "Usuário não encontrado!",
+        });
+      }
+
+      await prisma.user.delete({
+        where: { id: userId },
+      });
+
+      return res.status(200).json({
+        message: "Usuário deletado com sucesso!",
+      });
+    } catch (error) {
+      console.log(error);
+      return res.status(500).json({
+        message: "Erro Interno no servidor!",
+      });
+    }
+  },
+);
+
+usersRoutes.post("/refresh", async (req, res) => {
+  const { refreshToken } = req.body;
+
+  if (!refreshToken) {
+    return res.status(400).json({
+      message: "Refresh token obrigatório",
+    });
+  }
+
+  try {
+    const tokenInDb = await prisma.refreshToken.findUnique({
+      where: { token: refreshToken },
+      include: { user: true },
+    });
+
+    if (!tokenInDb) {
+      return res.status(401).json({
+        message: "Refresh token inválido",
+      });
+    }
+
+    if (tokenInDb.expiresAt < new Date()) {
+      await prisma.refreshToken.delete({
+        where: { token: refreshToken },
+      });
+
+      return res.status(401).json({
+        message: "Refresh token expirado",
+      });
+    }
+
+    const newAccessToken = jwt.sign(
+      {
+        sub: tokenInDb.user.id,
+        role: tokenInDb.user.role,
+      },
+      process.env.JWT_SECRET!,
+      {
+        expiresIn: "15m",
+      },
+    );
+
+    return res.status(200).json({
+      accessToken: newAccessToken,
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      message: "Erro interno no servidor",
+    });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Servidor funcionando na porta ${PORT}`);

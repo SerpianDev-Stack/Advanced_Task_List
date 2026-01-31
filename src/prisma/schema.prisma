@@ -37,8 +37,18 @@ model User {
   role       UserRole @default(USER)
   created_at DateTime @default(now())
   chores     Chore[]
+  refreshTokens RefreshToken[]
 
   @@map("users")
+}
+
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 }
 
 enum UserRole {
